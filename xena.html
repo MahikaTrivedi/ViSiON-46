@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object & Person Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <style>
+        body {
+            background: black;
+            font-family: 'Poppins', sans-serif;
+            text-align: center;
+            color: #F5F5F5;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(-45deg, #05162e, #ebc623, #164b96, #071c39);
+            background-size: 300% 300%;
+            animation: gradientAnimation 10s ease infinite;
+            z-index: -1;
+        }
+
+        .container {
+            background: rgba(227, 222, 236, 0.5);
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            width: 90%;
+            height: 75vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #FFFFFF;
+        }
+
+        .video-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+
+        video {
+            display: none;
+        }
+
+        canvas {
+            border-radius: 8px;
+            max-width: 100%;
+            width: 100%;
+            height: auto;
+            border: 3px solid #28A4FF;
+        }
+
+        #objects {
+            margin-top: 15px;
+            font-size: 16px;
+            font-weight: 500;
+            color: #f8f8f8;
+        }
+
+        #greeting {
+            font-size: 50px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #eee0e0;
+        }
+    </style>
+</head>
+<body>
+    <div id="greeting">Hello User!</div>
+    <div class="container">
+        <h1>Live Object & Person Detection</h1>
+        <div class="video-container">
+            <video id="video" autoplay></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        <div id="objects">Identified Objects: None</div>
+    </div>
+    <script>
+        async function setupCamera() {
+            const video = document.getElementById('video');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } });
+            video.srcObject = stream;
+            return new Promise(resolve => video.onloadedmetadata = () => resolve(video));
+        }
+
+        function speak(text) {
+            if (!announcementEnabled) return;
+            const speech = new SpeechSynthesisUtterance(text);
+            speech.lang = 'en-US';
+            speech.rate = 1;
+            window.speechSynthesis.cancel(); // Stop any ongoing speech before starting new one
+            window.speechSynthesis.speak(speech);
+        }
+
+        async function detectObjects(video, cocoModel) {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const objectsDiv = document.getElementById('objects');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const categoryColors = {
+                'person': 'red',
+                'cell phone': 'green',
+                'bottle': 'purple',
+                'chair': 'orange',
+                'cup': 'yellow',
+                'laptop': 'cyan',
+                'book': 'pink',
+                'default': 'blue'
+            };
+
+            let lastDetectedObjects = new Map();
+
+            async function detectFrame() {
+                const predictions = await cocoModel.detect(video);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                let detectedObjects = new Map();
+                let messages = [];
+
+                predictions.forEach(prediction => {
+                    if (prediction.score > 0.7) {
+                        const bbox = prediction.bbox;
+                        const color = categoryColors[prediction.class] || categoryColors['default'];
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(bbox[0], bbox[1], bbox[2], bbox[3]);
+                        ctx.fillStyle = color;
+                        ctx.font = '16px Arial';
+                        ctx.fillText(`${prediction.class} (${Math.round(prediction.score * 100)}%)`, bbox[0], bbox[1] - 5);
+
+                        const position = bbox[0] + bbox[2] / 2 < canvas.width / 2 ? 'left' : 'right';
+                        const objectKey = `${prediction.class}-${position}`;
+                        detectedObjects.set(objectKey, true);
+
+                        if (!lastDetectedObjects.has(objectKey)) {
+                            messages.push(`${prediction.class} on the ${position}`);
+                        }
+                    }
+                });
+
+                if (messages.length > 0) {
+                    speak(messages.join(', '));
+                }
+
+                lastDetectedObjects = new Map(detectedObjects);
+                objectsDiv.innerText = `Objects: ${Array.from(detectedObjects.keys()).join(', ') || 'None'}`;
+                requestAnimationFrame(detectFrame);
+            }
+            detectFrame();
+        }
+
+        async function main() {
+            const video = await setupCamera();
+            const cocoModel = await cocoSsd.load();
+            detectObjects(video, cocoModel);
+        }
+
+        main();
+    </script>
+</body>
+</html>
+
